@@ -1,5 +1,11 @@
 # Keys Unlock Dreams Initiative
 ## Housing Finance Policy Center
 
-### Cities:
-### - Detroit
+### Cities/MSA (in progress):
+#### - Detroit
+#### - Columbus
+#### - Memphis
+
+### Cities/MSA (upcoming):
+#### - Atlanta
+#### - Philadelphia
