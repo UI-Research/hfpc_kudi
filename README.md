@@ -7,7 +7,7 @@
 
 ### Report includes:
 
-#### About Detroit
+#### About City/MSA
 * Explanation of the market: Population Household in City and MSA
 * Race and Segregation in City
 * Neighborhood Racial Segregation
