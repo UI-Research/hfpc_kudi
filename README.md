@@ -8,10 +8,9 @@
 ### Report includes:
 
 #### About City/MSA
-* Explanation of the market: Population Household in City and MSA
+* Population Household in City and MSA
 * Race and Segregation in City
 * Neighborhood Racial Segregation
-* Neighborhood Racial Composition
 
 #### Household Characteristics
 * Homeownership Rate
