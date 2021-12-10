@@ -1,0 +1,416 @@
+---
+header-includes: 
+  - \input{preamble.tex}
+latex_engine: xelatex
+fontsize: 9.5pt
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+sansfont: Lato
+font: Lato
+geometry: left=0.65in,right=0.65in,top=0.35in,bottom=0.5in
+urlcolor: null
+---
+
+\raggedright
+
+```{r, include=FALSE}
+options(tinytex.verbose = TRUE)
+```
+
+```{r rmarkdown-setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(dev = "cairo_pdf")
+
+library(data.table)
+library(flextable)
+library(ggmap)
+library(ggrepel)
+library(glue)
+library(gt)
+library(janitor)
+library(knitr)
+library(kableExtra)
+library(lubridate)
+library(osmdata)
+library(readxl)
+library(scales)
+library(sf)
+library(sp)
+library(tidycensus)
+library(tidyverse)
+library(tigris)
+library(tinytex)
+library(urbnmapr)
+library(urbnthemes)
+library(zoo)
+```
+
+```{r}
+city_title <- c("Memphis")
+city_name <- c("Memphis","memphis")
+city_name_state <- c("Memphis, TN")
+city_state <- c("TN")
+city_df <- c("memphis_city")
+city_title_df <- c("City of Memphis")
+city_dis_title_df <- c("Memphis city")
+
+msa_name <- c("Memphis-","memphis-")
+msa_state <- c("Tennessee")
+msa_df <- c("memphis_msa")
+msa_title_df <- c("Memphis MSA")
+
+msa_md_code <- c("32820|47664")
+state_df <- c("47")
+```
+
+
+```{r include = FALSE}
+# label/table functions
+percentLabel <- function(x, digits = 1, format = "f", ...) {
+  paste0(formatC(100 * x, format = format, digits = digits, ...), "%")
+}
+
+countLabel <- function(x, digits = 1, format = "f", ...) {
+  paste0("(", formatC(x, format = format, digits = digits, ...), ")")
+}
+
+dollarLabel <- function(x, ...) {
+  paste0("$", x, ...)
+}
+
+dollarLabel_k <- function(x, ...) {
+  paste0("$", x, "k", ...)
+}
+```
+
+```{r}
+# PUMA WEIGHTS
+
+xwalk_hhwt_df <- fread("data/memphis/geocorr2018_tn2016_hhwt.csv") %>% 
+  janitor::clean_names() %>%
+  dplyr::rename(puma_name = pum_aname) %>% 
+  dplyr::mutate(memphis_city_place = if_else(str_detect(placenm14, "Memphis city"), "1", "0")) %>%
+  dplyr::filter(memphis_city_place == "1") %>% 
+  dplyr::select(puma, hh_afact_2016) %>%
+  dplyr::rename(hh_afact = hh_afact_2016)
+  
+xwalk_df <- fread("data/memphis/geocorr2018_tn2016.csv") %>% 
+  janitor::clean_names() %>%
+  dplyr::mutate(memphis_city_place = if_else(str_detect(placenm14, "Memphis city"), "1", "0")) %>%
+  dplyr::filter(memphis_city_place == "1") %>% 
+  dplyr::select(puma, afact_2016) %>%
+  dplyr::rename(afact = afact_2016) %>%
+  dplyr::left_join(xwalk_hhwt_df, by = "puma") 
+  
+glimpse(xwalk_df)
+```
+
+```{r include = FALSE}
+# acs data
+acs_hh_2009 <- fread("data/usa_2009.csv.gz")
+acs_hh_2014 <- fread("data/usa_2014.csv.gz")
+acs_hh_2019 <- fread("data/usa_2019.csv.gz")
+
+acs_hh_df <- bind_rows(acs_hh_2009, acs_hh_2014, acs_hh_2019) 
+```
+
+```{r}
+acs_hh <- acs_hh_df %>%
+  clean_names() %>%
+  dplyr::filter(pernum == 1) %>%
+  dplyr::filter(gq != 3 & gq != 4) %>%
+  dplyr::mutate(columbus_msa = if_else(met2013 == "18140", "1", "0"),
+                detroit_msa = if_else(met2013 == "19820", "1", "0"),
+                memphis_msa = if_else(met2013 == "32820", "1", "0"),
+                
+                detroit_city = if_else(city == "1750", "1", "0"),
+                
+                memphis_city = if_else(city == "4010", "1", "0"),
+                
+                memphis_puma = case_when(puma == 3201 ~ "1",
+                                         puma == 3202 ~ "1",
+                                         puma == 3203 ~ "1",
+                                         puma == 3204 ~ "1",
+                                         puma == 3205 ~ "1",
+                                         puma == 3206 ~ "1",
+                                         puma == 3207 ~ "1",
+                                         puma == 3208 ~ "1",
+                                         TRUE ~ as.character("0")),
+                
+                columbus_city = case_when(puma == 3900 ~ "1",
+                                          puma == 4000 ~ "1",
+                                          puma == 4101 ~ "1",
+                                          puma == 4102 ~ "1",
+                                          puma == 4103 ~ "1",
+                                          puma == 4104 ~ "1",
+                                          puma == 4105 ~ "1",
+                                          puma == 4106 ~ "1",
+                                          puma == 4107 ~ "1",
+                                          puma == 4108 ~ "1",
+                                          puma == 4109 ~ "1",
+                                          puma == 4110 ~ "1",
+                                          puma == 4111 ~ "1",
+                                          TRUE ~ as.character("0"))) %>%
+  
+  dplyr::mutate(acs_year = factor(case_when(year == 2009 ~ "2005–09", 
+                                            year == 2014 ~ "2010–14",
+                                            year == 2019 ~ "2015–19"),
+                                  levels = c("2005–09", "2010–14", "2015–19")),
+                
+                own = if_else(ownershp == 1, "Owners", "Renters"),
+                
+                raceeth = factor(case_when(race == 1 & hispan==0 ~ 'White',
+                                            race == 2 & hispan==0 ~ 'Black',
+                                            race >= 4 & race <= 6 & hispan==0 ~ 'Asian',
+                                            hispan !=0 ~ 'Hispanic',
+                                           TRUE ~ as.character("Other")),
+                                  levels = c("Asian", "Black", "Hispanic", "White", "Other")),
+                
+                type = factor(case_when(unitsstr == 1 ~ "Mobile home",
+                                        unitsstr == 4 ~ "Attached single-family home",
+                                        unitsstr == 3 ~ "Detached single-family home",
+                                        unitsstr == 5 ~ "2-to-4-unit multifamily home",
+                                        unitsstr == 6 ~ "2-to-4-unit multifamily home",
+                                        unitsstr == 7 ~ "5-to-19-unit multifamily home",
+                                        unitsstr == 8 ~ "5-to-19-unit multifamily home",
+                                        unitsstr == 9 ~ "20-to-49-unit multifamily home",
+                                        unitsstr == 10 ~ "50-or-more-unit multifamily home"),
+                       levels = c("Mobile home", "Attached single-family home", "Detached single-family home",
+                                  "2-to-4-unit multifamily home", "5-to-19-unit multifamily home",
+                                  "20-to-49-unit multifamily home", "50-or-more-unit multifamily home")),
+                
+                age = factor(case_when(builtyr2 == 1 ~ "Before 1940",
+                                       builtyr2 == 2 ~ "1940–1959",
+                                       builtyr2 == 3 ~ "1940–1959",
+                                       builtyr2 == 4 ~ "1960–1979",
+                                       builtyr2 == 5 ~ "1960–1979",
+                                       builtyr2 == 6 ~ "1980–1999",
+                                       builtyr2 == 7 ~ "1980–1999",
+                                       builtyr2 == 8 ~ "1980–1999",
+                                       builtyr2 >= 9 & builtyr2 < 15 ~ "2000–2009",
+                                       builtyr2 >= 15 ~ "Since 2010"),
+                             levels = c("Before 1940","1940–1959","1960–1979","1980–1999","2000–2009","Since 2010")),
+                
+                hhincome = na_if(hhincome, 9999999),
+  
+                adjhhinc = case_when(year == 2009 ~ hhincome*255.657/214.537,
+                                     year == 2014 ~ hhincome*255.657/237.017,
+                                     TRUE ~ as.double(hhincome)),
+                
+                rentgrs = na_if(rentgrs, 9999999),
+                
+                adjrent = case_when(year == 2009 ~ rentgrs*255.657/214.537,
+                                    year == 2014 ~ rentgrs*255.657/237.017,
+                                    TRUE ~ as.double(rentgrs)),
+                
+                valueh = na_if(valueh, 9999999),
+                adjhv = case_when(year == 2009 ~ valueh*255.657/214.537,
+                                  year == 2014 ~ valueh*255.657/237.017,
+                                  TRUE ~ as.double(valueh)),
+                
+                rentburden = if_else((rentgrs*12)/hhincome>0.3 & own == "Renters", 1, 0),
+                ownburden = if_else((owncost*12)/hhincome>0.3 & own == "Owners", 1, 0)) %>%
+  dplyr::select(-columbus_city, -columbus_msa, -detroit_city, -detroit_msa)
+
+# PUMA WEIGHTS
+
+acs_hh_city <- acs_hh %>%
+  dplyr::filter(statefip == state_df) %>%
+  dplyr::filter(memphis_puma == "1") %>%
+  dplyr::right_join(xwalk_df, by = "puma") %>%
+  dplyr::mutate(perwt_adj = perwt*afact,
+                hhwt_adj = hhwt*hh_afact)
+```
+
+```{r include = FALSE}
+# map
+cbsa_df <- core_based_statistical_areas(cb = FALSE, class = "sf") %>% 
+  filter(str_detect(NAME, city_name))
+
+counties_df <- counties(state = city_name, cb = FALSE, class = "sf") %>% 
+  st_join(cbsa_df) %>% 
+  filter(!is.na(NAME.y)) %>% 
+  dplyr::select(NAME.x) %>% 
+  st_drop_geometry() %>%  
+  pull()
+
+state_df <- states(cb = FALSE, class = "sf") %>% 
+  filter(NAME == msa_state)
+
+city_gis <- st_read("https://opendata.arcgis.com/datasets/86b221bb68ca4364afe81d156e54f95c_0.geojson") %>% 
+  st_transform(crs = 4269)
+```
+
+```{r include = FALSE}
+# base maps
+msa_map <- get_stamenmap(bbox = c(left = -90.80, top = 35.85, right = -89.05, bottom = 34.35), 
+                         zoom = 12, maptype = "toner-lite")
+
+city_map <- get_stamenmap(bbox = c(left = -90.40, top = 35.35, right = -89.60, bottom = 34.95), 
+                         zoom = 12, maptype = "toner-lite")
+
+ggmap(city_map)
+```
+
+```{r include = FALSE}
+# holc data
+holc_city <- read_sf("data/memphis/TNMemphis19XX.geojson") %>% 
+  mutate(grade = factor(case_when(holc_grade == "A" ~ "Best",
+                                  holc_grade == "B" ~ "Desirable",
+                                  holc_grade == "C" ~ "Declining",
+                                  holc_grade == "D" ~ "Hazardous"),
+                        levels = c("Best","Desirable","Declining","Hazardous")))
+```
+
+```{r include = FALSE}
+# dissimilarity - city
+dissim_index_city <- readxl::read_xls("data/cityalld.xls")
+# dissimilarity - msa
+dissim_index_msa <- readxl::read_xls("data/msaalld.xls")
+```
+
+```{r include = FALSE}
+city_censustract <- fread("data/city_censustracts.csv") 
+
+city_censustract <- city_censustract %>%
+  mutate(census_tract = as.numeric(census_tract))
+```
+
+```{r include = FALSE}
+hmda2019_all <- fread("data/hmda_all_2019.csv") %>% 
+  mutate(census_tract = as.numeric(census_tract)) %>%
+  left_join(city_censustract, by = "census_tract") %>% 
+  mutate(city_level = if_else(str_detect(city, city_title), 1, 0),
+         city_msa = if_else(str_detect(derived_msa_md, msa_md_code), 1, 0))
+
+hmda2019_org <- fread("data/hmda2019_org.csv") %>% 
+  mutate(census_tract = as.numeric(census_tract)) %>% 
+  select(-dti_num) %>%
+  left_join(city_censustract, by = "census_tract") %>% 
+  mutate(city_level = if_else(str_detect(city, city_title), 1, 0),
+         city_msa = if_else(str_detect(derived_msa_md, msa_md_code), 1, 0))
+```
+
+```{r include = FALSE}
+credit_score <- read_excel("data/freddie_mac_mortgage_ready.xlsx", 
+                       sheet = "DTI_Vantage Bucket",
+                       col_names = TRUE)
+```
+
+```{r include = FALSE}
+mort_ready_df <- read_excel("data/freddie_mac_mortgage_ready.xlsx", 
+                       sheet = "Mortgage Ready",
+                       skip = 1, col_names = TRUE)
+
+colnames(mort_ready_df) <- c("geo","White_Mortgage Ready","White_Near Mortgage Ready",
+                        "Black_Mortgage Ready","Black_Near Mortgage Ready",
+                        "Hispanic_Mortgage Ready","Hispanic_Near Mortgage Ready",
+                        "Asian_Mortgage Ready","Asian_Near Mortgage Ready",
+                        "Other_Mortgage Ready","Other_Near Mortgage Ready")
+```
+
+```{r include = FALSE}
+time_save_df <- read_excel("data/freddie_mac_mortgage_ready.xlsx", 
+                       sheet = "Time to Save Affordability",
+                       skip = 1, col_names = TRUE)
+
+colnames(time_save_df) <- c("geo",
+                             "White_% Mortgage Ready",
+                             "White_Affordability 2.9% Mortgage Rate",
+                             "White_Time to Save 3% Downpayment (in Years)",
+                             "Black_% Mortgage Ready",
+                             "Black_Affordability 2.9% Mortgage Rate",
+                             "Black_Time to Save 3% Downpayment (in Years)",
+                             "Hispanic_% Mortgage Ready",
+                             "Hispanic_Affordability 2.9% Mortgage Rate",
+                             "Hispanic_Time to Save 3% Downpayment (in Years)",
+                             "Asian_% Mortgage Ready",
+                             "Asian_Affordability 2.9% Mortgage Rate",
+                             "Asian_Time to Save 3% Downpayment (in Years)",
+                             "Other_% Mortgage Ready",
+                             "Other_Affordability 2.9% Mortgage Rate",
+                             "Other_Time to Save 3% Downpayment (in Years)")
+```
+
+```{r include = FALSE}
+city_hpi <- readRDS("data/columbus/hpi_all_memphis_columbus.rds")
+
+city_tiers <- readRDS("data/columbus/hpi_tier_memphis_columbus.rds") 
+
+city_comp <- readxl::read_xlsx("data/cct_data.xlsx", sheet = "prices_local") 
+
+med_price <- readRDS("data/columbus/memphis_columbus_home_prices.rds")
+```
+
+```{r eval = FALSE}
+city_shape <- st_read("data/memphis/kx-memphis-tn-census-tracts-2010-SHP/memphis-tn-census-tracts-2010.shp", stringsAsFactors = FALSE)
+city_shape <- st_transform(city_shape, CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+city_shape <- as_Spatial(city_shape)
+city_tract <- fortify(city_shape, region = "Id")
+city_tract <- city_tract %>% dplyr::mutate(id = gsub("1400000US", "", id),
+                                           group = gsub("1400000US", "", group))
+
+city_structure <- fread("data/memphis/memphis_structure.csv")
+```
+
+```{r include = FALSE}
+county_list <- c("Tate County","Marshall County","Tunica County","DeSoto County","Fayette County","Shelby County",
+                 "Crittenden County", "Tipton County")
+
+counties_sf <- get_urbn_map("counties", sf = TRUE) %>%
+  dplyr::filter(state_name == "Arkansas" | state_name == "Tennessee" | state_name == "Mississippi") %>%
+  dplyr::mutate(drop_county = if_else(state_name == "Tennessee" & county_name == "Marshall County", "1", "0")) %>%
+  dplyr::filter(drop_county != "1") %>%
+  dplyr::filter(str_detect(county_name, paste(county_list, collapse = "|"))) %>%
+  dplyr::mutate(county = str_remove(county_name, " County"))
+```
+
+```{r}
+investor <- read_excel("data/investor_purchases.xlsx",
+                       sheet = city_title)
+```
+
+
+```{r include = FALSE}
+options("scipen"=999, "digits"=15)
+format(1810032000, scientific = FALSE)
+
+hous_invent <- read_excel("data/memphis/Memphis_Zillow.xlsx",
+                          sheet = "Inventory",
+                          col_names = TRUE)
+```
+
+```{r}
+housingunits_df <- fread("data/memphis/Memphis Permit.csv")
+
+national_housingunits_df <- fread("data/PERMIT in Thousand - US.csv")
+```
+
+```{r}
+days_pend <- read_excel("data/memphis/Memphis_Zillow.xlsx",
+                          sheet = "DaystoPending",
+                          col_names = TRUE) %>%
+  dplyr::select(10:13)
+```
+
+```{r}
+census_api_key("7157b90f5279392bef418a649d5ff4fe63f121ae", overwrite = TRUE)
+
+tn_msa_tidy <- get_acs(geography = "metropolitan statistical area/micropolitan statistical area",
+              variables = c(population = "B01003_001"), 
+              year = 2019, geometry = TRUE) %>%
+  dplyr::filter(str_detect(NAME, c("Memphis, TN"))) %>%
+  dplyr::mutate(area = "Memphis MSA")
+
+tn_tidy <- get_acs(geography = "place", state = "TN", 
+              variables = c(population = "B19013_001"), 
+              year = 2019, geometry = TRUE) %>%
+  dplyr::filter(str_detect(NAME, c("Memphis")))%>%
+  dplyr::mutate(area = "City of Memphis") %>%
+  bind_rows(tn_msa_tidy)
+```
